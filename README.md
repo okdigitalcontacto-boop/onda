@@ -137,7 +137,7 @@ Spotify no deja a las apps externas ver el contenido ni la portada de sus listas
 
 **Fundido entre canciones:** cuando suena en este PC, Onda baja el volumen poco a poco al final de cada canción y lo sube al empezar la siguiente. No es un crossfade de verdad, porque Spotify no deja a las apps externas mezclar dos canciones ni activar Automix. Si escuchas en el móvil u otro ordenador, activa el Crossfade o el Automix en los ajustes de **Reproducción** de la app de Spotify de ese dispositivo.
 
-**Limpiar caché:** borra las portadas y archivos temporales guardados y recarga la interfaz, lo que libera la memoria de la página al momento. Tu sesión, tus ajustes y tus listas fijadas se quedan. Si está sonando en este PC, se corta un segundo y sigue.
+**Limpiar caché:** borra las portadas y archivos temporales guardados y libera memoria al momento. Tu sesión, tus ajustes y tus listas fijadas se quedan, y la música no se corta. Si está sonando en este PC, Onda limpia sin recargar la interfaz (libera algo menos de memoria). Si no, recarga la interfaz, que libera más.
 
 ## Limitaciones (las pone Spotify)
 

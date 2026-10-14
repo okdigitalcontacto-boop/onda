@@ -1,7 +1,7 @@
 'use strict';
 /* Onda: cliente ligero para Spotify. Solo usa la Web API oficial y el Web Playback SDK. */
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const REPO = 'https://github.com/okdigitalcontacto-boop/onda';
 const API = 'https://api.spotify.com/v1';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -925,15 +925,33 @@ async function transferTo(id) {
 }
 
 /* ---------- limpiar caché ---------- */
+let cleaning = false;
 async function cleanCache() {
+  if (cleaning) return;
+  cleaning = true;
   closeOverlays();
   toast('Limpiando caché…', 8000);
   const before = await py('memory');
-  const wasLocal = isLocal() && !!pb?.playing;
-  try { sessionStorage.setItem('onda.cleaned', JSON.stringify({ before, wasLocal, view, at: Date.now() })); } catch { }
   try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { }
   await py('clear_cache');
-  location.reload(); // recargar la interfaz libera la memoria de la página al momento
+
+  // Si el reproductor de este PC está en uso, no se recarga: recargar lo reiniciaría y cortaría la música.
+  if (localId && isLocal()) {
+    likeMap.clear();
+    cardCache.clear();
+    await render(false); // vuelve a dibujar la vista: suelta portadas y elementos que ya no se ven
+    await py('trim_memory');
+    await sleep(1200);
+    const after = await py('memory');
+    cleaning = false;
+    if (!$('#sheet').hidden && sheetSec === 'clean') refreshSheet();
+    toast(before && after && after < before
+      ? `Caché limpia sin cortar la música. Memoria: ${before} MB → ${after} MB.`
+      : 'Caché limpia sin cortar la música.', 6000);
+    return;
+  }
+  try { sessionStorage.setItem('onda.cleaned', JSON.stringify({ before, wasLocal: false, view, at: Date.now() })); } catch { }
+  location.reload(); // sin música en este PC: recargar libera más memoria y no corta nada
 }
 function cleanedInfo() {
   try { const c = JSON.parse(sessionStorage.getItem('onda.cleaned') || 'null'); return c && Date.now() - c.at < 60000 ? c : null; } catch { return null; }
@@ -1365,7 +1383,7 @@ const SECTIONS = {
   clean: () => `<h2>Limpiar caché</h2>
     <div class="set-row"><b>Memoria en uso</b><p class="mem" id="memNow">Midiendo…</p></div>
     <div class="set-row"><button class="primary" data-act="cleannow">Limpiar caché ahora</button>
-      <p class="set-note">Borra las portadas y archivos temporales guardados y recarga la interfaz para liberar memoria al momento. Tu sesión y tus ajustes se quedan. Si suena en este PC, se corta un segundo y sigue.</p></div>
+      <p class="set-note">Borra las portadas y archivos temporales guardados y libera memoria al momento. Tu sesión y tus ajustes se quedan, y la música no se corta: si suena en este PC, Onda limpia sin recargar la interfaz.</p></div>
     ${toggleRow('autoClean', 'Limpiar al cerrar Onda', 'Borra la caché del disco cada vez que cierras la app.')}
     ${toggleRow('trimMinimized', 'Ahorrar memoria al minimizar', 'Pide a Windows que Onda use menos memoria mientras está minimizada (no lo hace si está sonando en este PC).')}`,
   keys: () => `<h2>Atajos de teclado</h2>

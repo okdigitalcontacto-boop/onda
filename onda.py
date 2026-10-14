@@ -163,6 +163,18 @@ class Api:
         except Exception:
             return False
 
+    def trim_memory(self):
+        """Pide a WebView2 que suelte memoria un momento sin recargar nada (la música sigue)."""
+        if not IS_WIN:
+            return False
+        try:
+            set_memory_target(True)
+            time.sleep(1.5)
+            set_memory_target(False)
+            return True
+        except Exception:
+            return False
+
     def set_prefs(self, values):
         if isinstance(values, dict):
             prefs.update({k: bool(v) for k, v in values.items() if k in ('autoClean', 'trimMinimized')})
