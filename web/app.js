@@ -1,7 +1,7 @@
 'use strict';
 /* Onda: cliente ligero para Spotify. Solo usa la Web API oficial y el Web Playback SDK. */
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const REPO = 'https://github.com/okdigitalcontacto-boop/onda';
 const API = 'https://api.spotify.com/v1';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -115,7 +115,7 @@ function toast(text, ms = 4200) {
 // Listas de Spotify que vienen fijadas de serie. Se pueden quitar o añadir otras.
 // Spotify no deja leer su contenido desde apps externas; solo reproducirlas.
 const PRESET_PINS = [
-  { uri: 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq', name: 'DJ', sub: 'Tu DJ de Spotify · experimental', color: '#3d5afe' },
+  { uri: 'spotify:playlist:37i9dQZF1EYkqdzj48dyYq', name: 'DJ', sub: 'Tu DJ de Spotify', color: '#3d5afe' },
   { uri: 'spotify:playlist:37i9dQZF1DX0XUsuxWHRQd', name: 'RapCaviar', sub: 'Lista de Spotify', color: '#d6336c' },
   { uri: 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M', name: "Today's Top Hits", sub: 'Lista de Spotify', color: '#2f9e44' },
 ];
@@ -123,7 +123,7 @@ const DEFAULTS = {
   features: { search: true, library: true, foryou: true, queue: true, sidePlaylists: true, likes: true, localPlayback: true },
   theme: 'system', accent: 'cover', wash: 'normal', density: 'comfy',
   zoom: 1, reduceMotion: false, contrast: false,
-  covers: 'normal', autoClean: true, trimMinimized: true,
+  covers: 'normal', autoClean: true, trimMinimized: true, fade: 0,
   pins: null,
 };
 function loadPrefs() {
@@ -131,6 +131,7 @@ function loadPrefs() {
   try { p = JSON.parse(store.get('prefs') || '{}'); } catch { }
   const out = { ...DEFAULTS, ...p, features: { ...DEFAULTS.features, ...(p.features || {}) } };
   if (!Array.isArray(out.pins)) out.pins = PRESET_PINS.map(x => ({ ...x }));
+  out.pins.forEach(p => { if (p.sub === 'Tu DJ de Spotify · experimental') p.sub = 'Tu DJ de Spotify'; }); // ajustes guardados con la 1.1
   return out;
 }
 let prefs = loadPrefs();
@@ -504,6 +505,44 @@ function tick() {
     $('#tCur').textContent = fmt(cur);
   }
   if (pb.playing && !endKick && pb.progress + Date.now() - pbAt > pb.duration + 1500) { endKick = true; soon(); }
+  fadeTick(cur);
+}
+
+/* ---------- fundido entre canciones (solo cuando suena en este PC) ----------
+   Spotify no deja mezclar dos canciones desde apps externas, así que no es un crossfade real:
+   Onda baja el volumen al final de cada canción y lo sube al empezar la siguiente. */
+const fade = { state: 'idle', timer: null };
+const baseVol = () => +(store.get('vol') || 70) / 100;
+function rampVolume(from, to, ms, done) {
+  clearInterval(fade.timer);
+  const t0 = Date.now();
+  fade.timer = setInterval(() => {
+    const k = Math.min(1, (Date.now() - t0) / Math.max(ms, 1));
+    try { sdk?.setVolume(from + (to - from) * k); } catch { }
+    if (k >= 1) { clearInterval(fade.timer); fade.timer = null; done?.(); }
+  }, 80);
+}
+function stopFade() {
+  if (fade.state === 'idle') return;
+  clearInterval(fade.timer);
+  fade.timer = null;
+  fade.state = 'idle';
+  try { sdk?.setVolume(baseVol()); } catch { }
+}
+function fadeTick(cur) {
+  const F = (prefs.fade || 0) * 1000;
+  if (!F || !isLocal() || !sdk) return stopFade();
+  if (!pb.playing) { if (fade.state === 'out') stopFade(); return; }
+  if (pb.duration < F * 3) return;
+  const left = pb.duration - cur;
+  if (fade.state === 'idle' && left <= F && left > 400) { fade.state = 'out'; rampVolume(baseVol(), 0.02, left - 150); }
+  else if (fade.state === 'out' && left > F + 1500) stopFade(); // ha vuelto atrás en la canción
+}
+function fadeInIfNeeded() {
+  if (fade.state !== 'out' || !isLocal() || !sdk) return;
+  fade.state = 'in';
+  try { sdk.setVolume(0.02); } catch { }
+  rampVolume(0.02, baseVol(), Math.min(prefs.fade * 1000 * 0.6, 4000), () => { fade.state = 'idle'; });
 }
 
 /* ---------- órdenes ---------- */
@@ -579,7 +618,12 @@ function cycleRepeat() {
 }
 let volT = null;
 function setVolume(v) {
-  if (isLocal() && sdk) { store.set('vol', String(v)); sdk.setVolume(v / 100); return; }
+  if (isLocal() && sdk) {
+    store.set('vol', String(v));
+    if (fade.state !== 'idle') { clearInterval(fade.timer); fade.timer = null; fade.state = 'idle'; } // manda el usuario
+    sdk.setVolume(v / 100);
+    return;
+  }
   clearTimeout(volT);
   volT = setTimeout(() => api('/me/player/volume', { method: 'PUT', query: { volume_percent: v } }).catch(e => toast(msg(e))), 250);
 }
@@ -817,6 +861,7 @@ function updateBar() {
 }
 function onTrackChange() {
   const it = pb?.item;
+  if (it) fadeInIfNeeded(); else stopFade();
   tintFrom(it ? pickImg(it.album?.images, 64) : null);
   paintRowsOn();
   if (it) checkLikes($('#bar'));
@@ -1255,7 +1300,7 @@ async function runSearch(q) {
 
 /* ---------- menú ··· y ajustes ---------- */
 const MENU = [
-  ['personal', 'Personalización'], ['features', 'Funciones'], ['access', 'Accesibilidad'], ['quality', 'Calidad'],
+  ['personal', 'Personalización'], ['features', 'Funciones'], ['access', 'Accesibilidad'], ['playback', 'Reproducción'], ['quality', 'Calidad'],
   ['clean', 'Limpiar caché'], ['keys', 'Atajos de teclado'], ['account', 'Cuenta'], ['about', 'Acerca de Onda'],
 ];
 function closeOverlays() {
@@ -1306,6 +1351,12 @@ const SECTIONS = {
     ${toggleRow('reduceMotion', 'Reducir movimiento', 'Quita animaciones y transiciones.')}
     ${toggleRow('contrast', 'Más contraste', 'Textos y bordes más marcados, sin transparencias.')}
     <p class="set-note">Todo se puede usar con el teclado: Tab para moverte, Intro para reproducir la fila elegida y Espacio para pausar.</p>`,
+  playback: () => `<h2>Reproducción</h2>
+    ${segRow('fade', 'Fundido entre canciones', [[0, 'No'], [3, '3 s'], [6, '6 s'], [10, '10 s']])}
+    <p class="set-note">Cuando suena en este PC, Onda baja el volumen poco a poco al final de cada canción y lo sube al empezar la siguiente, sin cortes secos.</p>
+    <p class="set-note">No es un crossfade de verdad: Spotify no deja a las apps externas mezclar el final de una canción con el principio de la siguiente, ni activar Automix.</p>
+    <div class="set-row"><b>Crossfade y Automix en otros dispositivos</b>
+      <p class="set-note">Si escuchas en el móvil o en otro ordenador, actívalos en la app de Spotify de ese dispositivo, en sus ajustes de <b>Reproducción</b> (el nombre exacto puede cambiar según la versión). Como es un ajuste de ese dispositivo, debería seguir funcionando cuando lo controlas desde Onda.</p></div>`,
   quality: () => `<h2>Calidad</h2>
     <div class="set-row"><b>Calidad del audio</b>
       <p class="set-note">Spotify no deja que las apps externas elijan la calidad del audio. Onda usa el reproductor web oficial de Spotify, que según Spotify suena a AAC 256 kbit/s con Premium y no se puede cambiar.</p>
