@@ -21,7 +21,7 @@ jobs:
       - name: Compilar
         run: |
           python make_icon.py
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Onda --icon onda.ico --add-data "web;web" onda.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Onda --icon onda.ico --add-data "web;web" --exclude-module cryptography onda.py
       - uses: actions/upload-artifact@v4
         with:
           name: Onda-windows
