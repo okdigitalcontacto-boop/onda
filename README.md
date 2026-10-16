@@ -199,7 +199,9 @@ ONDA_PYTHON=.venv/bin/python ./build.sh
 
 La app aparece en `dist/Onda.app`. Para probar sin compilar: `.venv/bin/python onda.py`. La Redirect URI es la misma (`http://127.0.0.1:8765/callback`) y la sesión se guarda en `~/Library/Application Support/Onda`.
 
-Como la app no está firmada, la primera vez macOS puede bloquearla: haz clic derecho en `Onda.app` → **Abrir** → **Abrir**. Ya se ha comprobado que la app compila y arranca en macOS. **Lo que todavía no está probado** es si suena dentro de la propia app (depende de que WKWebView acepte el DRM de Spotify); el modo de controlar otros dispositivos debería funcionar igual.
+Para instalarla sin compilar, descarga **`Onda-macOS.zip`** de [Releases](../../releases/latest), ábrelo y arrastra `Onda.app` a **Aplicaciones**. Solo funciona en Mac con Apple Silicon (M1 o posterior).
+
+Como la app no está firmada por Apple, la primera vez macOS dice que no puede verificarla. Pulsa **Aceptar**, ve a **Ajustes del Sistema** → **Privacidad y seguridad**, baja hasta el aviso de Onda y pulsa **Abrir igualmente**. Solo hace falta una vez. Ya se ha comprobado que la app compila y arranca en macOS. **Lo que todavía no está probado** es si suena dentro de la propia app (depende de que WKWebView acepte el DRM de Spotify); el modo de controlar otros dispositivos debería funcionar igual.
 
 ## Estructura
 
