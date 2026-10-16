@@ -2,7 +2,7 @@
 
 <h1 align="center">Onda</h1>
 
-<p align="center">Un reproductor de Spotify ligero y limpio para Windows, solo con lo que usas.<br>
+<p align="center">Un reproductor de Spotify ligero y limpio para Windows (y macOS, en pruebas), solo con lo que usas.<br>
 Código abierto, gratis y hecho con la API oficial de Spotify.</p>
 
 <p align="center"><img src="docs/para-ti.png" alt="Para ti en Onda, modo oscuro" width="860"></p>
@@ -187,7 +187,19 @@ Cada vez que se publica una etiqueta `v*`, GitHub Actions compila el .exe en una
 
 ### macOS (experimental)
 
-`python onda.py` debería abrir Onda en macOS usando WKWebView. Hay que instalar las dependencias con `pip` y añadir `http://127.0.0.1:8765/callback` igual. **No está probado**: el modo de controlar otros dispositivos debería funcionar, pero reproducir dentro de la propia app depende de que WKWebView acepte el DRM de Spotify.
+Onda funciona en macOS con WKWebView, el motor web que ya trae el sistema. Necesitas Python 3.12 o 3.13 (por ejemplo, `brew install python@3.13`).
+
+```bash
+git clone https://github.com/okdigitalcontacto-boop/onda.git
+cd onda
+python3.13 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+ONDA_PYTHON=.venv/bin/python ./build.sh
+```
+
+La app aparece en `dist/Onda.app`. Para probar sin compilar: `.venv/bin/python onda.py`. La Redirect URI es la misma (`http://127.0.0.1:8765/callback`) y la sesión se guarda en `~/Library/Application Support/Onda`.
+
+Como la app no está firmada, la primera vez macOS puede bloquearla: haz clic derecho en `Onda.app` → **Abrir** → **Abrir**. Ya se ha comprobado que la app compila y arranca en macOS. **Lo que todavía no está probado** es si suena dentro de la propia app (depende de que WKWebView acepte el DRM de Spotify); el modo de controlar otros dispositivos debería funcionar igual.
 
 ## Estructura
 
@@ -198,7 +210,8 @@ web/style.css     Estilos: temas, color adaptativo, accesibilidad
 web/app.js        Sesión, API de Spotify, reproductor, vistas, ajustes y cuestionario
 web/config.js     Client ID integrado opcional (vacío en la versión pública)
 make_icon.py      Genera el icono (onda.ico / onda.png)
-build.bat         Compila dist\Onda.exe con PyInstaller
+build.bat         Compila dist\Onda.exe con PyInstaller (Windows)
+build.sh          Compila dist/Onda.app con PyInstaller (macOS)
 ```
 
 Sin frameworks ni dependencias de JavaScript: HTML, CSS y JavaScript sin más.

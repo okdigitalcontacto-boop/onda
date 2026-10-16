@@ -1,4 +1,4 @@
-name: Compilar Onda.exe
+name: Compilar Onda (Windows y macOS)
 
 on:
   push:
@@ -32,3 +32,26 @@ jobs:
         with:
           files: dist/Onda.exe
           generate_release_notes: true
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt
+      - name: Compilar
+        run: |
+          ONDA_PYTHON=python ./build.sh
+          cd dist && ditto -c -k --keepParent Onda.app Onda-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Onda-macos
+          path: dist/Onda-macOS.zip
+      - name: Publicar en Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Onda-macOS.zip
