@@ -1,7 +1,7 @@
 'use strict';
 /* Onda: cliente ligero para Spotify. Solo usa la Web API oficial y el Web Playback SDK. */
 
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const REPO = 'https://github.com/okdigitalcontacto-boop/onda';
 const API = 'https://api.spotify.com/v1';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -485,7 +485,8 @@ function soon() { schedulePoll(700); }
 async function refreshState() {
   try {
     const st = fromApi(await api('/me/player', { query: { additional_types: 'episode' } }));
-    if (st || !isLocal()) setState(st);
+    const sdkRules = sdk && localId && isLocal() && st?.device?.id === localId; // el SDK ya avisa de todo al momento
+    if (!sdkRules && (st || !isLocal())) setState(st);
   } catch { }
   finally {
     schedulePoll(document.hidden ? 30000 : (isLocal() && pb?.playing ? 15000 : 4000));
@@ -505,44 +506,55 @@ function tick() {
     $('#tCur').textContent = fmt(cur);
   }
   if (pb.playing && !endKick && pb.progress + Date.now() - pbAt > pb.duration + 1500) { endKick = true; soon(); }
-  fadeTick(cur);
 }
 
 /* ---------- fundido entre canciones (solo cuando suena en este PC) ----------
    Spotify no deja mezclar dos canciones desde apps externas, así que no es un crossfade real:
    Onda baja el volumen al final de cada canción y lo sube al empezar la siguiente. */
-const fade = { state: 'idle', timer: null };
+const fade = { low: false, inUri: null, lastSent: null, syncAt: 0 };
 const baseVol = () => +(store.get('vol') || 70) / 100;
-function rampVolume(from, to, ms, done) {
-  clearInterval(fade.timer);
-  const t0 = Date.now();
-  fade.timer = setInterval(() => {
-    const k = Math.min(1, (Date.now() - t0) / Math.max(ms, 1));
-    try { sdk?.setVolume(from + (to - from) * k); } catch { }
-    if (k >= 1) { clearInterval(fade.timer); fade.timer = null; done?.(); }
-  }, 80);
+const fadeMs = () => (prefs.fade || 0) * 1000;
+const fadeInMs = () => Math.min(fadeMs() * 0.6, 4000);
+function sendVol(v) {
+  v = Math.round(Math.max(0, Math.min(1, v)) * 100) / 100;
+  if (v === fade.lastSent) return; // no repetir órdenes iguales al reproductor
+  fade.lastSent = v;
+  try { sdk?.setVolume(v)?.catch?.(() => { }); } catch { }
 }
-function stopFade() {
-  if (fade.state === 'idle') return;
-  clearInterval(fade.timer);
-  fade.timer = null;
-  fade.state = 'idle';
-  try { sdk?.setVolume(baseVol()); } catch { }
+// Se llama cada 100 ms. Sin estados que se puedan quedar a medias: el volumen depende solo de
+// cuánto queda de canción (al final) o de cuánto lleva (al empezar después de un fundido).
+function fadeLoop() {
+  if (!sdk || !localId) return;
+  const F = fadeMs();
+  if (!F || !isLocal() || !pb?.item) {
+    if (fade.low || fade.inUri) { fade.low = false; fade.inUri = null; sendVol(baseVol()); }
+    return;
+  }
+  if (!pb.playing) return; // en pausa (también el instante entre canciones) no se toca el volumen
+  const cur = curPos(), left = pb.duration - cur;
+  // Cerca del final, pide al reproductor la posición exacta en vez de fiarse de la estimación
+  if (left < F + 2500 && Date.now() - fade.syncAt > 400) {
+    fade.syncAt = Date.now();
+    const uri = pb.item.uri;
+    sdk.getCurrentState?.().then(st => {
+      if (st && !st.paused && st.track_window?.current_track?.uri === uri && pb?.item?.uri === uri) { pb.progress = st.position; pbAt = Date.now(); }
+    }).catch(() => { });
+  }
+  let g = 1;
+  if (pb.duration > F * 2 && left <= F) g = Math.max(0, left / F);
+  if (fade.inUri === pb.item.uri) {
+    const k = cur / fadeInMs();
+    if (k < 1) g = Math.min(g, k); else fade.inUri = null;
+  }
+  fade.low = g < 0.999;
+  sendVol(baseVol() * g * g); // curva cuadrática: al oído baja y sube de forma más natural que en línea recta
 }
-function fadeTick(cur) {
-  const F = (prefs.fade || 0) * 1000;
-  if (!F || !isLocal() || !sdk) return stopFade();
-  if (!pb.playing) { if (fade.state === 'out') stopFade(); return; }
-  if (pb.duration < F * 3) return;
-  const left = pb.duration - cur;
-  if (fade.state === 'idle' && left <= F && left > 400) { fade.state = 'out'; rampVolume(baseVol(), 0.02, left - 150); }
-  else if (fade.state === 'out' && left > F + 1500) stopFade(); // ha vuelto atrás en la canción
-}
-function fadeInIfNeeded() {
-  if (fade.state !== 'out' || !isLocal() || !sdk) return;
-  fade.state = 'in';
-  try { sdk.setVolume(0.02); } catch { }
-  rampVolume(0.02, baseVol(), Math.min(prefs.fade * 1000 * 0.6, 4000), () => { fade.state = 'idle'; });
+setInterval(fadeLoop, 100);
+function fadeOnTrackChange() {
+  // Si la canción anterior terminó con el volumen bajado, la nueva empieza en silencio y sube
+  if (fade.low && fadeMs() && isLocal() && pb?.item) { fade.inUri = pb.item.uri; sendVol(0); }
+  else if (fade.inUri && fade.inUri !== pb?.item?.uri) fade.inUri = null;
+  fade.low = false;
 }
 
 /* ---------- órdenes ---------- */
@@ -620,7 +632,8 @@ let volT = null;
 function setVolume(v) {
   if (isLocal() && sdk) {
     store.set('vol', String(v));
-    if (fade.state !== 'idle') { clearInterval(fade.timer); fade.timer = null; fade.state = 'idle'; } // manda el usuario
+    if (fade.low || fade.inUri) { fadeLoop(); return; } // durante un fundido, el bucle aplica el nuevo volumen
+    fade.lastSent = Math.round(v) / 100;
     sdk.setVolume(v / 100);
     return;
   }
@@ -861,7 +874,7 @@ function updateBar() {
 }
 function onTrackChange() {
   const it = pb?.item;
-  if (it) fadeInIfNeeded(); else stopFade();
+  fadeOnTrackChange();
   tintFrom(it ? pickImg(it.album?.images, 64) : null);
   paintRowsOn();
   if (it) checkLikes($('#bar'));
@@ -1372,6 +1385,7 @@ const SECTIONS = {
   playback: () => `<h2>Reproducción</h2>
     ${segRow('fade', 'Fundido entre canciones', [[0, 'No'], [3, '3 s'], [6, '6 s'], [10, '10 s']])}
     <p class="set-note">Cuando suena en este PC, Onda baja el volumen poco a poco al final de cada canción y lo sube al empezar la siguiente, sin cortes secos.</p>
+    ${prefs.fade && pb?.device && !isLocal() ? `<p class="note">Ahora suena en <b>${esc(pb.device.name)}</b>: el fundido solo funciona cuando suena en este ordenador. Cámbialo con el botón de dispositivo, abajo a la derecha → <b>Este PC (Onda)</b>.</p>` : ''}
     <p class="set-note">No es un crossfade de verdad: Spotify no deja a las apps externas mezclar el final de una canción con el principio de la siguiente, ni activar Automix.</p>
     <div class="set-row"><b>Crossfade y Automix en otros dispositivos</b>
       <p class="set-note">Si escuchas en el móvil o en otro ordenador, actívalos en la app de Spotify de ese dispositivo, en sus ajustes de <b>Reproducción</b> (el nombre exacto puede cambiar según la versión). Como es un ajuste de ese dispositivo, debería seguir funcionando cuando lo controlas desde Onda.</p></div>`,
