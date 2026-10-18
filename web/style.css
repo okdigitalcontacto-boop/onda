@@ -461,3 +461,9 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border: 1px soli
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Instrucciones plegables en ajustes */
+#appStatus { margin: 12px 0 8px; }
+.howto { margin: 0 0 26px; }
+.howto summary { cursor: pointer; color: var(--accent); font-size: 13px; font-weight: 500; }
+.howto .steps { margin: 12px 0 10px; font-size: 13px; }

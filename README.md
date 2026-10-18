@@ -17,7 +17,7 @@ Onda es un cliente de escritorio para Spotify con lo justo, y cada persona elige
 - **Cola**: qué suena ahora y qué viene después; añade canciones con el botón **+**.
 - **Reproduce en el propio PC** o **controla otro dispositivo** (móvil, otro ordenador, altavoces) con Spotify Connect.
 - **A tu medida**: activa o quita funciones, elige tema y color, tamaño de la interfaz, contraste y movimiento.
-- **Fundido entre canciones** al reproducir en el PC (3, 6 o 10 segundos).
+- **Crossfade real** (canciones superpuestas) usando la app oficial de Spotify del ordenador como reproductor, o un **fundido** propio sin superponer.
 - **Limpiar caché** con un clic, y limpieza automática al cerrar.
 - **Diseño adaptativo**: la ventana toma el color de la portada que suena (o el color que elijas).
 
@@ -126,7 +126,7 @@ Spotify no deja a las apps externas ver el contenido ni la portada de sus listas
 | **Personalización** | Tema (como el sistema, claro u oscuro), color (el de la portada, seis fijos u otro a elegir), intensidad del color de fondo y listas cómodas o compactas |
 | **Funciones** | Activar o quitar Para ti, Buscar, Biblioteca, Cola, playlists en la barra lateral, botones de Me gusta y reproducir en este PC. Lo que quitas deja de cargarse |
 | **Accesibilidad** | Tamaño de la interfaz (pequeño a muy grande), reducir movimiento y más contraste |
-| **Reproducción** | Fundido entre canciones: no, 3, 6 o 10 segundos |
+| **Reproducción** | Crossfade real con la app de Spotify, y fundido de Onda (no, 3, 6 o 10 segundos) |
 | **Calidad** | Portadas en calidad normal o alta. Sobre el audio, mira la nota de abajo |
 | **Limpiar caché** | Memoria que usa Onda ahora, botón para limpiar al momento, limpiar al cerrar y ahorrar memoria al minimizar |
 | **Atajos de teclado** | La lista completa |
@@ -135,7 +135,15 @@ Spotify no deja a las apps externas ver el contenido ni la portada de sus listas
 
 **Calidad del audio:** Spotify no deja que las apps externas elijan la calidad. Onda usa el reproductor web oficial de Spotify; según Spotify, el reproductor web suena a AAC 256 kbit/s con Premium y no se puede cambiar. Si escuchas en otro dispositivo, cambia la calidad en la app de Spotify de ese dispositivo (**Ajustes → Calidad de audio**).
 
-**Fundido entre canciones:** cuando suena en este PC, Onda baja el volumen poco a poco al final de cada canción y lo sube al empezar la siguiente. No es un crossfade de verdad, porque Spotify no deja a las apps externas mezclar dos canciones ni activar Automix. Si escuchas en el móvil u otro ordenador, activa el Crossfade o el Automix en los ajustes de **Reproducción** de la app de Spotify de ese dispositivo.
+**Crossfade real:** Spotify solo deja sonar una canción a la vez por cuenta y su audio está protegido, así que Onda no puede mezclar dos canciones por sí misma. Lo que sí hace es usar la app oficial de Spotify del ordenador, que tiene crossfade y Automix de verdad:
+
+1. Instala la app oficial de Spotify desde [spotify.com/download](https://www.spotify.com/download/) y entra con tu cuenta.
+2. En sus **Ajustes**, apartado **Reproducción**, activa el crossfade (y si quieres, Automix).
+3. En Onda, **··· → Reproducción → Crossfade real**. Onda abre la app de Spotify en segundo plano, sin ventana, y le pasa la música. Tú sigues usando Onda como siempre.
+
+Mientras está activo, el ordenador gasta más memoria porque la app oficial también está abierta. Al quitarlo, la música vuelve a **Este PC (Onda)**.
+
+**Fundido de Onda (sin superponer):** para cuando suena en **Este PC (Onda)** sin la app de Spotify. Baja el volumen al final de cada canción, pasa a la siguiente cuando ya casi no se oye (sin esperar al final mudo) y la sube rápido. Si escuchas en el móvil, activa el crossfade o el Automix en los ajustes de **Reproducción** de la app de Spotify del móvil.
 
 **Limpiar caché:** borra las portadas y archivos temporales guardados y libera memoria al momento. Tu sesión, tus ajustes y tus listas fijadas se quedan, y la música no se corta. Si está sonando en este PC, Onda limpia sin recargar la interfaz (libera algo menos de memoria). Si no, recarga la interfaz, que libera más.
 
@@ -148,7 +156,7 @@ Desde febrero de 2026, las apps en modo desarrollo de Spotify tienen estas restr
 - No hay «canciones más populares» del artista, ni novedades, ni categorías. La página del artista muestra su discografía.
 - Las **listas de Spotify** (DJ, Daily Mix, RapCaviar…) no se pueden leer, solo reproducir; y la reproducción no está garantizada por Spotify (desde [noviembre de 2024](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api) las apps nuevas no tienen acceso a ellas).
 - La **calidad del audio** no se puede elegir desde apps externas.
-- No hay **crossfade real ni Automix**: Spotify solo los permite en su propia app. Onda ofrece un fundido (baja el volumen al final y lo sube al empezar), que no mezcla dos canciones a la vez.
+- Onda no puede **superponer canciones por sí misma** ni activar Automix: Spotify solo deja sonar una canción a la vez por cuenta. Para tenerlo, Onda usa la app oficial de Spotify (ver **Crossfade real**).
 - Cada app de desarrollador admite como mucho **5 usuarios**. Por eso cada persona crea la suya.
 - El dueño de la app de desarrollador necesita **Premium** activo.
 

@@ -7,7 +7,9 @@ import http.server
 import json
 import os
 import shutil
+import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import time
@@ -131,7 +133,48 @@ def delete_cache_dirs():
         shutil.rmtree(os.path.join(root, *rel.split('/')), ignore_errors=True)
 
 
+def computer_name():
+    """Nombre con el que la app oficial de Spotify aparece en tus dispositivos."""
+    if sys.platform == 'darwin':
+        try:
+            return subprocess.run(['scutil', '--get', 'ComputerName'], capture_output=True, text=True, timeout=3).stdout.strip()
+        except Exception:
+            pass
+    return os.environ.get('COMPUTERNAME') or socket.gethostname()
+
+
+def spotify_app_path():
+    """Ruta de la app oficial de Spotify si está instalada en este ordenador (no se instala nada)."""
+    if sys.platform == 'darwin':
+        candidates = ['/Applications/Spotify.app', os.path.expanduser('~/Applications/Spotify.app')]
+    elif IS_WIN:
+        candidates = [
+            os.path.join(os.environ.get('APPDATA', ''), 'Spotify', 'Spotify.exe'),
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'WindowsApps', 'Spotify.exe'),  # Microsoft Store
+        ]
+    else:
+        candidates = []
+    return next((c for c in candidates if c and os.path.exists(c)), None)
+
+
 class Api:
+    def spotify_app(self):
+        return {'installed': bool(spotify_app_path()), 'name': computer_name()}
+
+    def open_spotify_app(self):
+        """Abre la app oficial de Spotify en segundo plano, sin ventana delante."""
+        path = spotify_app_path()
+        if not path:
+            return False
+        try:
+            if sys.platform == 'darwin':
+                subprocess.Popen(['open', '-g', '-j', '-a', path])  # -g: sin traerla delante; -j: oculta
+            else:
+                subprocess.Popen([path, '--minimized'])
+            return True
+        except Exception:
+            return False
+
     def open_url(self, url):
         if isinstance(url, str) and url.startswith('https://'):
             webbrowser.open(url)

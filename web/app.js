@@ -1,7 +1,7 @@
 'use strict';
 /* Onda: cliente ligero para Spotify. Solo usa la Web API oficial y el Web Playback SDK. */
 
-const VERSION = '1.2.2';
+const VERSION = '1.3.0';
 const REPO = 'https://github.com/okdigitalcontacto-boop/onda';
 const API = 'https://api.spotify.com/v1';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -123,7 +123,7 @@ const DEFAULTS = {
   features: { search: true, library: true, foryou: true, queue: true, sidePlaylists: true, likes: true, localPlayback: true },
   theme: 'system', accent: 'cover', wash: 'normal', density: 'comfy',
   zoom: 1, reduceMotion: false, contrast: false,
-  covers: 'normal', autoClean: true, trimMinimized: true, fade: 0,
+  covers: 'normal', autoClean: true, trimMinimized: true, fade: 0, realCrossfade: false,
   pins: null,
 };
 function loadPrefs() {
@@ -387,6 +387,7 @@ function startApp() {
   $('#app').insertAdjacentHTML('beforeend', `<button class="ib more-btn" id="moreBtn" title="Más opciones" aria-label="Más opciones" aria-haspopup="menu">${icon('dots')}</button>`);
   applyPrefs();
   if (prefs.features.localPlayback) loadSdk();
+  if (prefs.realCrossfade) useSpotifyApp({ transfer: false, quiet: true });
   bindGlobal();
   go(firstView(), firstView() === 'library' ? 'playlists' : null);
   myPlaylists().then(renderSideList).catch(() => { });
@@ -432,7 +433,49 @@ function setLocalPlayback(on) {
 }
 
 const isLocal = () => !!localId && pb?.device?.id === localId;
-const targetDevice = () => pb?.device?.id || localId || undefined;
+let appDevice = null; // la app oficial de Spotify de este ordenador, si se usa para el crossfade real
+const targetDevice = () => pb?.device?.id || (prefs.realCrossfade && appDevice) || localId || undefined;
+async function findAppDevice(tries = 1) {
+  const info = await py('spotify_app');
+  if (!info?.installed) return null;
+  const name = String(info.name || '').toLowerCase();
+  for (let i = 0; i < tries; i++) {
+    const list = (await api('/me/player/devices').catch(() => null))?.devices || [];
+    const pcs = list.filter(d => d.id !== localId && d.type === 'Computer');
+    const found = pcs.find(d => d.name.toLowerCase() === name) || (pcs.length === 1 ? pcs[0] : null);
+    if (found) return found;
+    if (i < tries - 1) await sleep(1500);
+  }
+  return null;
+}
+async function useSpotifyApp({ transfer = true, quiet = false } = {}) {
+  const info = await py('spotify_app');
+  if (!info) { if (!quiet) toast('El crossfade real solo funciona en la app de escritorio de Onda.'); return false; }
+  if (!info.installed) { if (!quiet) toast('No tienes la app oficial de Spotify en este ordenador. Mira las instrucciones en ··· → Reproducción.'); return false; }
+  if (!quiet) toast('Abriendo la app de Spotify en segundo plano…', 9000);
+  await py('open_spotify_app');
+  const dev = await findAppDevice(12);
+  if (!dev) { if (!quiet) toast('No encuentro la app de Spotify entre tus dispositivos. Ábrela, entra con tu cuenta y vuelve a activar el crossfade real.'); return false; }
+  appDevice = dev.id;
+  if (transfer) {
+    try {
+      await api('/me/player', { method: 'PUT', body: { device_ids: [dev.id], play: pb ? pb.playing : false } });
+      toast('Ahora suena en la app de Spotify, con su crossfade. Onda hace de mando.');
+    } catch (e) { toast(msg(e)); }
+    setTimeout(soon, 500);
+  }
+  return true;
+}
+async function setRealCrossfade(on) {
+  if (on) {
+    const ok = await useSpotifyApp();
+    if (!ok) { prefs.realCrossfade = false; savePrefs(); refreshSheet(); }
+    return;
+  }
+  // Al quitarlo, la música vuelve a este ordenador si estaba en la app de Spotify
+  if (appDevice && pb?.device?.id === appDevice && localId) transferTo(localId);
+  appDevice = null;
+}
 
 function fromApi(j) {
   if (!j || (!j.item && !j.device)) return null;
@@ -511,10 +554,10 @@ function tick() {
 /* ---------- fundido entre canciones (solo cuando suena en este PC) ----------
    Spotify no deja mezclar dos canciones desde apps externas, así que no es un crossfade real:
    Onda baja el volumen al final de cada canción y lo sube al empezar la siguiente. */
-const fade = { low: false, inUri: null, lastSent: null, syncAt: 0 };
+const fade = { low: false, inUri: null, lastSent: null, syncAt: 0, skipped: null };
 const baseVol = () => +(store.get('vol') || 70) / 100;
 const fadeMs = () => (prefs.fade || 0) * 1000;
-const fadeInMs = () => Math.min(fadeMs() * 0.6, 4000);
+const fadeInMs = () => Math.min(fadeMs() * 0.4, 2500);
 function sendVol(v) {
   v = Math.round(Math.max(0, Math.min(1, v)) * 100) / 100;
   if (v === fade.lastSent) return; // no repetir órdenes iguales al reproductor
@@ -541,13 +584,23 @@ function fadeLoop() {
     }).catch(() => { });
   }
   let g = 1;
-  if (pb.duration > F * 2 && left <= F) g = Math.max(0, left / F);
+  if (pb.duration > F * 2 && left <= F) {
+    const x = Math.max(0, left / F);
+    g = x * x; // baja despacio al principio y rápido al final
+    // Cuando ya casi no se oye, pasa a la siguiente: así no hay silencio entre canciones
+    // (se salta el final mudo que tienen muchas canciones). No si se está repitiendo esta canción.
+    if (x <= 0.3 && pb.repeat !== 'track' && fade.skipped !== pb.item.uri) {
+      fade.skipped = pb.item.uri;
+      fade.low = true;
+      try { sdk.nextTrack()?.catch?.(() => { }); } catch { }
+    }
+  }
   if (fade.inUri === pb.item.uri) {
     const k = cur / fadeInMs();
-    if (k < 1) g = Math.min(g, k); else fade.inUri = null;
+    if (k < 1) g = Math.min(g, Math.sin(k * Math.PI / 2)); else fade.inUri = null; // sube rápido al empezar
   }
   fade.low = g < 0.999;
-  sendVol(baseVol() * g * g); // curva cuadrática: al oído baja y sube de forma más natural que en línea recta
+  sendVol(baseVol() * g);
 }
 setInterval(fadeLoop, 100);
 function fadeOnTrackChange() {
@@ -923,7 +976,7 @@ async function toggleDevices() {
   if (localId && !devices.some(d => d.id === localId)) devices.unshift({ id: localId, name: LOCAL_NAME, type: 'Computer', is_active: false });
   const onlyLocal = devices.every(d => d.id === localId);
   pop.innerHTML = '<div class="pop-h">Reproducir en</div>'
-    + devices.map(d => `<button class="dv ${d.is_active ? 'on' : ''}" data-dev="${esc(d.id)}">${icon(DEV_ICON[d.type] || 'speaker')}<span><b>${d.id === localId ? 'Este PC (Onda)' : esc(d.name)}</b><small>${esc(DEV_LABEL[d.type] || d.type)}${d.is_active ? ' · Sonando aquí' : ''}</small></span></button>`).join('')
+    + devices.map(d => `<button class="dv ${d.is_active ? 'on' : ''}" data-dev="${esc(d.id)}">${icon(DEV_ICON[d.type] || 'speaker')}<span><b>${d.id === localId ? 'Este PC (Onda)' : esc(d.name)}</b><small>${d.id === appDevice ? 'App de Spotify · crossfade real' : esc(DEV_LABEL[d.type] || d.type)}${d.is_active ? ' · Sonando aquí' : ''}</small></span></button>`).join('')
     + (devices.length ? '' : '<p class="pop-note">No hay dispositivos disponibles.</p>')
     + (!prefs.features.localPlayback ? '<p class="pop-note">Reproducir en este PC está desactivado en ··· → Funciones.</p>' : '')
     + (onlyLocal ? '<p class="pop-note">¿No ves tu móvil u otro ordenador? Abre Spotify en ese dispositivo y aparecerá aquí.</p>' : '');
@@ -1383,12 +1436,21 @@ const SECTIONS = {
     ${toggleRow('contrast', 'Más contraste', 'Textos y bordes más marcados, sin transparencias.')}
     <p class="set-note">Todo se puede usar con el teclado: Tab para moverte, Intro para reproducir la fila elegida y Espacio para pausar.</p>`,
   playback: () => `<h2>Reproducción</h2>
-    ${segRow('fade', 'Fundido entre canciones', [[0, 'No'], [3, '3 s'], [6, '6 s'], [10, '10 s']])}
-    <p class="set-note">Cuando suena en este PC, Onda baja el volumen poco a poco al final de cada canción y lo sube al empezar la siguiente, sin cortes secos.</p>
-    ${prefs.fade && pb?.device && !isLocal() ? `<p class="note">Ahora suena en <b>${esc(pb.device.name)}</b>: el fundido solo funciona cuando suena en este ordenador. Cámbialo con el botón de dispositivo, abajo a la derecha → <b>Este PC (Onda)</b>.</p>` : ''}
-    <p class="set-note">No es un crossfade de verdad: Spotify no deja a las apps externas mezclar el final de una canción con el principio de la siguiente, ni activar Automix.</p>
-    <div class="set-row"><b>Crossfade y Automix en otros dispositivos</b>
-      <p class="set-note">Si escuchas en el móvil o en otro ordenador, actívalos en la app de Spotify de ese dispositivo, en sus ajustes de <b>Reproducción</b> (el nombre exacto puede cambiar según la versión). Como es un ajuste de ese dispositivo, debería seguir funcionando cuando lo controlas desde Onda.</p></div>`,
+    ${toggleRow('realCrossfade', 'Crossfade real', 'Las canciones se superponen de verdad: una baja mientras sube la otra. Suena la app oficial de Spotify de este ordenador (Onda la abre sola, sin ventana) y Onda hace de mando.')}
+    <div id="appStatus" class="set-note">Comprobando si tienes la app de Spotify…</div>
+    <details class="howto"><summary>Cómo activarlo</summary>
+      <ol class="steps">
+        <li>Instala la app oficial de Spotify en este ordenador desde <span class="ext" data-ext="https://www.spotify.com/download/">spotify.com/download</span> y entra con tu cuenta.</li>
+        <li>En la app de Spotify, abre los <b>Ajustes</b> (en tu foto de perfil, arriba a la derecha) y, en el apartado <b>Reproducción</b>, activa el crossfade y elige los segundos. Si quieres, activa también <b>Automix</b>. El nombre exacto puede cambiar según la versión de Spotify.</li>
+        <li>Vuelve a Onda y activa <b>Crossfade real</b>.</li>
+      </ol>
+      <p class="set-note">Mientras está activo, el ordenador gasta más memoria, porque la app oficial también está abierta.</p>
+    </details>
+    ${segRow('fade', 'Fundido de Onda (sin superponer)', [[0, 'No'], [3, '3 s'], [6, '6 s'], [10, '10 s']])}
+    <p class="set-note">Para cuando suena en <b>Este PC (Onda)</b> sin la app de Spotify: baja el volumen al final, pasa a la siguiente cuando ya casi no se oye y la sube rápido. No superpone las canciones: Spotify solo deja sonar una a la vez por cuenta y su audio está protegido.</p>
+    ${prefs.fade && pb?.device && !isLocal() && pb.device.id !== appDevice ? `<p class="note">Ahora suena en <b>${esc(pb.device.name)}</b>: el fundido de Onda solo funciona cuando suena en este ordenador. Cámbialo con el botón de dispositivo, abajo a la derecha → <b>Este PC (Onda)</b>.</p>` : ''}
+    <div class="set-row"><b>En el móvil</b>
+      <p class="set-note">Si escuchas en el iPhone, activa el crossfade o el Automix en la app de Spotify del iPhone, en sus ajustes de <b>Reproducción</b>. Como es un ajuste de ese dispositivo, debería seguir funcionando cuando lo controlas desde Onda.</p></div>`,
   quality: () => `<h2>Calidad</h2>
     <div class="set-row"><b>Calidad del audio</b>
       <p class="set-note">Spotify no deja que las apps externas elijan la calidad del audio. Onda usa el reproductor web oficial de Spotify, que según Spotify suena a AAC 256 kbit/s con Premium y no se puede cambiar.</p>
@@ -1441,6 +1503,13 @@ function openSettings(secName = sheetSec) {
   </div>`;
   s.hidden = false;
   s.querySelector('.sheet-nav .on')?.focus();
+  if (sheetSec === 'playback') py('spotify_app').then(info => {
+    const el = $('#appStatus');
+    if (!el) return;
+    el.innerHTML = !info ? 'Solo disponible en la app de escritorio de Onda.'
+      : info.installed ? `App de Spotify encontrada en este ordenador (<b>${esc(info.name)}</b>).`
+        : 'No tienes la app oficial de Spotify en este ordenador: el crossfade real no se puede activar hasta que la instales.';
+  });
   if (sheetSec === 'clean') py('memory').then(mb => { const el = $('#memNow'); if (el) el.textContent = mb ? `${mb} MB` : 'No disponible fuera de la app de escritorio.'; });
 }
 function refreshSheet() {
@@ -1467,6 +1536,7 @@ function setPref(path, value) {
   savePrefs();
   applyPrefs();
   if (path === 'features.localPlayback') setLocalPlayback(value);
+  if (path === 'realCrossfade') setRealCrossfade(value);
   if (path === 'covers' || path === 'features.likes' || (keys[0] === 'features' && !navEnabled(view.name))) go(navEnabled(view.name) ? view.name : firstView(), view.arg, false);
   if (keys[0] === 'features' && (keys[1] === 'likes')) checkLikes();
 }
